@@ -1,6 +1,25 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 const pool = require('../db');
+
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 // Get phone number suggestions
 router.get('/phone-suggestions/:query', async (req, res) => {
@@ -164,7 +183,7 @@ router.post('/test-date', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   console.log('🚀 POST /api/visitors endpoint HIT!');
   console.log('🚀 Request method:', req.method);
   console.log('🚀 Request headers:', req.headers);

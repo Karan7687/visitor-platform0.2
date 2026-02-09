@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 const pool = require('../db');
 
@@ -99,11 +100,11 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user by email
+    // Find user by email (without is_active filter first)
     const userQuery = `
       SELECT id, full_name, email, phone, password_hash, role, is_active, company_id, created_at
       FROM users 
-      WHERE email = $1 AND is_active = true
+      WHERE email = $1
     `;
     const userResult = await pool.query(userQuery, [email]);
 
@@ -113,6 +114,11 @@ router.post('/login', async (req, res) => {
 
     const user = userResult.rows[0];
 
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'Account is deactivated. Please contact administrator.' });
+    }
+
     // Compare password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
@@ -120,9 +126,19 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Return user data (without password hash)
+    // Return user data with JWT token
+    console.log('🔐 About to generate JWT token for user:', user.id);
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '24h' }
+    );
+    console.log('🔐 JWT token generated successfully, length:', token.length);
+    console.log('🔐 JWT token first 20 chars:', token.substring(0, 20));
+    
     res.status(200).json({
       message: 'Login successful',
+      token: token,
       user: {
         id: user.id,
         full_name: user.full_name,
