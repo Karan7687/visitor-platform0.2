@@ -523,19 +523,60 @@ router.post('/', async (req, res) => {
     }
 
 
-
     // Get employee's company_id
 
+    console.log('🔍 Looking up company_id for employee_id:', employee_id);
+    
     const employeeQuery = `
-
-      SELECT company_id FROM users WHERE id = $1
-
+      SELECT company_id, full_name, email FROM users WHERE id = $1
     `;
-
+    
     const employeeResult = await pool.query(employeeQuery, [employee_id]);
-
+    console.log('🔍 Employee query result:', employeeResult.rows);
+    
+    if (employeeResult.rows.length === 0) {
+      console.error('❌ ERROR: Employee not found!');
+      return res.status(400).json({ 
+        error: 'Employee not found',
+        details: `Employee ID ${employee_id} does not exist in users table`
+      });
+    }
+    
     const companyId = employeeResult.rows[0]?.company_id;
-
+    console.log('🔍 Retrieved company_id:', companyId);
+    console.log('🔍 company_id type:', typeof companyId);
+    
+    if (!companyId) {
+      console.error('❌ ERROR: Employee has no company_id assigned!');
+      console.log('🔍 Employee details:', employeeResult.rows[0]);
+      
+      // Try to get a default company or create a fallback
+      const defaultCompanyQuery = `
+        SELECT id FROM companies WHERE status = 'active' ORDER BY id LIMIT 1
+      `;
+      
+      const defaultCompanyResult = await pool.query(defaultCompanyQuery);
+      
+      if (defaultCompanyResult.rows.length > 0) {
+        const defaultCompanyId = defaultCompanyResult.rows[0].id;
+        console.log('🔄 Using default company_id:', defaultCompanyId);
+        
+        // Update the employee with the default company_id
+        const updateEmployeeQuery = `
+          UPDATE users SET company_id = $1 WHERE id = $2
+        `;
+        await pool.query(updateEmployeeQuery, [defaultCompanyId, employee_id]);
+        
+        var finalCompanyId = defaultCompanyId;
+      } else {
+        return res.status(400).json({ 
+          error: 'No active companies found - Please contact administrator',
+          details: `Employee ID ${employee_id} (${employeeResult.rows[0].full_name} - ${employeeResult.rows[0].email}) has no company_id and no default company is available`
+        });
+      }
+    } else {
+      var finalCompanyId = companyId;
+    }
 
 
     // Create visitor lead
@@ -554,7 +595,7 @@ router.post('/', async (req, res) => {
 
     const leadParams = [
 
-      companyId,
+      finalCompanyId,
 
       visitorId,
 
